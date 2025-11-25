@@ -390,36 +390,57 @@ def build_txt_for_course(course_id, course_title=None): #𓍯𝙎𝙪𝙟𝙖�
 
 
 # ---------------- BOT HANDLERS ---------------- #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-@bot.message_handler(commands=["start"]) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-def handle_start(message): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    chat_id = message.chat.id #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    ok, batches = get_active_batches() #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    if not ok: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        bot.send_message(chat_id, "❌ *Unable to fetch batch list. Try again later.*", parse_mode="Markdown") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        return #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+@bot.message_handler(commands=["start"])
+def handle_start(message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id  # Telegram user ID for subscription check
 
-    user_batches[chat_id] = {str(b.get("id") or b.get("_id")): b for b in batches} #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    user_state[chat_id] = "await_course_id" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+    # -------- FORCE SUBSCRIBE CHECK --------
+    if not is_subscribed(user_id):  # You should define this function
+        kb = telebot.types.InlineKeyboardMarkup()
+        kb.add(
+            telebot.types.InlineKeyboardButton(
+                "💥 Join Our Channel 💥",
+                url="https://t.me/+2q1EoC5BVyM2MjI1"
+            )
+        )
 
-    msg_lines = [ #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "━━━━━━━━━━━━━━━━━━━━━━━━", #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        " *WELCOME TO YOUR COURSE HUB!* ", #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        " *Select your batch from below:* ", #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "━━━━━━━━━━━━━━━━━━━━━━\n" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    ] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+        bot.send_message(
+            chat_id,
+            "🔴 **To use this bot, please join our channel first.**\n\nAfter joining, click /start",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+        return  # Stop execution if not subscribed
 
-    for i, b in enumerate(batches, start=1): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        title = b.get("title") or b.get("name") or "Untitled" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        bid = b.get("id") or b.get("_id") or "" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        msg_lines.append(f"📌 *{i}. {title}*") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        msg_lines.append(f"   🆔 Batch ID: `{bid}`") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        msg_lines.append("────────────────────────") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+    # -------- FETCH BATCHES --------
+    ok, batches = get_active_batches()
+    if not ok:
+        bot.send_message(chat_id, "❌ *Unable to fetch batch list. Try again later.*", parse_mode="Markdown")
+        return
 
-    msg_lines.append("\n✨ Send the *Batch ID* to continue.") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    msg_lines.append("💡 Tip: Copy the Batch ID above to avoid mistakes!") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    msg_lines.append("━━━━━━━━━━━━━━━━━━━") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+    user_batches[chat_id] = {str(b.get("id") or b.get("_id")): b for b in batches}
+    user_state[chat_id] = "await_course_id"
 
-    bot.send_message(chat_id, "\n".join(msg_lines), parse_mode="Markdown") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+    msg_lines = [
+        "━━━━━━━━━━━━━━━━━━━━━━━━",
+        " *WELCOME TO YOUR COURSE HUB!* ",
+        " *Select your batch from below:* ",
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+    ]
+
+    for i, b in enumerate(batches, start=1):
+        title = b.get("title") or b.get("name") or "Untitled"
+        bid = b.get("id") or b.get("_id") or ""
+        msg_lines.append(f"📌 *{i}. {title}*")
+        msg_lines.append(f"   🆔 Batch ID: `{bid}`")
+        msg_lines.append("────────────────────────")
+
+    msg_lines.append("\n✨ Send the *Batch ID* to continue.")
+    msg_lines.append("💡 Tip: Copy the Batch ID above to avoid mistakes!")
+    msg_lines.append("━━━━━━━━━━━━━━━━━━━")
+
+    bot.send_message(chat_id, "\n".join(msg_lines), parse_mode="Markdown")
 
 
 
