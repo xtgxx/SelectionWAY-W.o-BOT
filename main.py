@@ -390,18 +390,37 @@ def build_txt_for_course(course_id, course_title=None): #𓍯𝙎𝙪𝙟𝙖�
 
 
 # ---------------- BOT HANDLERS ---------------- #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+# ---------------- FORCE SUBSCRIBE FUNCTION ----------------
+def is_subscribed(user_id):
+    """
+    Checks if the user has joined the private channel.
+    Returns True if subscribed, False otherwise.
+    """
+    channel_id = -1003489596354  # Your private channel ID
+    try:
+        member = bot.get_chat_member(chat_id=channel_id, user_id=user_id)
+        if member.status in ['creator', 'administrator', 'member']:
+            return True
+        else:
+            return False
+    except telebot.apihelper.ApiTelegramException:
+        # User is not a member of the channel
+        return False
+
+
+# ---------------- BOT START HANDLER ----------------
 @bot.message_handler(commands=["start"])
 def handle_start(message):
     chat_id = message.chat.id
-    user_id = message.from_user.id  # Telegram user ID for subscription check
+    user_id = message.from_user.id  # Telegram user ID
 
     # -------- FORCE SUBSCRIBE CHECK --------
-    if not is_subscribed(user_id):  # You should define this function
+    if not is_subscribed(user_id):
         kb = telebot.types.InlineKeyboardMarkup()
         kb.add(
             telebot.types.InlineKeyboardButton(
                 "💥 Join Our Channel 💥",
-                url="https://t.me/+2q1EoC5BVyM2MjI1"
+                url="https://t.me/+2q1EoC5BVyM2MjI1"  # Your private channel invite link
             )
         )
 
@@ -413,15 +432,17 @@ def handle_start(message):
         )
         return  # Stop execution if not subscribed
 
-    # -------- FETCH BATCHES --------
+    # -------- FETCH ACTIVE BATCHES --------
     ok, batches = get_active_batches()
     if not ok:
         bot.send_message(chat_id, "❌ *Unable to fetch batch list. Try again later.*", parse_mode="Markdown")
         return
 
+    # Store user batches and state
     user_batches[chat_id] = {str(b.get("id") or b.get("_id")): b for b in batches}
     user_state[chat_id] = "await_course_id"
 
+    # Build the message to send
     msg_lines = [
         "━━━━━━━━━━━━━━━━━━━━━━━━",
         " *WELCOME TO YOUR COURSE HUB!* ",
@@ -441,7 +462,6 @@ def handle_start(message):
     msg_lines.append("━━━━━━━━━━━━━━━━━━━")
 
     bot.send_message(chat_id, "\n".join(msg_lines), parse_mode="Markdown")
-
 
 
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id) == "await_course_id") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
