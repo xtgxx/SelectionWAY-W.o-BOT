@@ -12,6 +12,7 @@ courses_bot_full.py #𓍯𝙎𝙪𝙟𝙖𝙡⚝
 """ #𓍯𝙎𝙪𝙟𝙖𝙡⚝
 
 import os #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+from threading import Thread
 import tempfile #𓍯𝙎𝙪𝙟𝙖𝙡⚝
 import logging #𓍯𝙎𝙪𝙟𝙖𝙡⚝
 from pathlib import Path #𓍯𝙎𝙪𝙟𝙖𝙡⚝
