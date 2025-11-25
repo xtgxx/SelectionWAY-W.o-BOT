@@ -476,23 +476,21 @@ def fallback(message): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
     bot.send_message(chat_id, "Use /start to list batches and export a course. If you're in the flow, follow instructions.") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
 
 
-# ---------------- RUN ---------------- #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-from threading import Thread #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+if __name__ == "__main__":
+    logging.info("Bot starting...")
 
-if __name__ == "__main__": #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    logging.info("Bot starting...") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+    def run_flask():
+        port = int(os.environ.get("PORT", 10000))
+        app.run(host="0.0.0.0", port=port)
 
-    # Flask को separate thread में चलाओ ताकि Render port detect कर सके #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    def run_flask(): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        port = int(os.environ.get("PORT", 10000)) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        app.run(host="0.0.0.0", port=port) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+    # Start Flask in a separate thread
+    Thread(target=run_flask, daemon=True).start()
 
-    Thread(target=run_flask, daemon=True).start() #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    # Bot start #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    try: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        bot.infinity_polling(timeout=60, long_polling_timeout=60) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    except KeyboardInterrupt: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        logging.info("Bot stopped by user.") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    except Exception: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        logging.exception("Bot crashed") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+    # Start polling in retry loop
+    import time
+    while True:
+        try:
+            bot.infinity_polling(timeout=60, long_polling_timeout=60)
+        except Exception as e:
+            print("Polling error:", e)
+            time.sleep(5)
