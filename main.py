@@ -1,3 +1,4 @@
+
 """ #𓍯𝙎𝙪𝙟𝙖𝙡⚝
 courses_bot_full.py #𓍯𝙎𝙪𝙟𝙖𝙡⚝
 - /start shows numbered batches with Batch ID (copyable) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
@@ -25,7 +26,7 @@ from flask import Flask #𓍯𝙎𝙪𝙟𝙖𝙡⚝
 from telebot.apihelper import ApiTelegramException #𓍯𝙎𝙪𝙟𝙖𝙡⚝
 
 # ---------------- CONFIG ---------------- #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-BOT_TOKEN = "8294450252:AAEBj5jrMNAdwyRyhfF9hGuQBTr9IkExmGk" # <-- REPLACE with your Bot token #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+BOT_TOKEN = "7972123394:AAEzLvVLbbxnwpWUtlNTMtec3NRTGzkW8G8" # <-- REPLACE with your Bot token #𓍯𝙎𝙪𝙟𝙖𝙡⚝
 BASE_URL = "https://backend.multistreaming.site/api" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
 USER_ID_FOR_ACTIVE = "1448640" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
 BASE_HEADERS = { #𓍯𝙎𝙪𝙟𝙖𝙡⚝
@@ -409,6 +410,9 @@ def is_subscribed(user_id):
 
 
 # ---------------- BOT START HANDLER ----------------
+# ---------------- BOT START HANDLER ----------------
+THUMBNAIL_PATH = "images.jpg"  # <-- yahan apna thumbnail image file rakho (same folder me)
+
 @bot.message_handler(commands=["start"])
 def handle_start(message):
     chat_id = message.chat.id
@@ -420,17 +424,16 @@ def handle_start(message):
         kb.add(
             telebot.types.InlineKeyboardButton(
                 "💥 Join Our Channel 💥",
-                url="https://t.me/+2q1EoC5BVyM2MjI1"  # Your private channel invite link
+                url="https://t.me/+2q1EoC5BVyM2MjI1"
             )
         )
-
         bot.send_message(
             chat_id,
             "🔴 **To use this bot, please join our channel first.**\n\nAfter joining, click /start",
             reply_markup=kb,
             parse_mode="Markdown"
         )
-        return  # Stop execution if not subscribed
+        return
 
     # -------- FETCH ACTIVE BATCHES --------
     ok, batches = get_active_batches()
@@ -438,11 +441,9 @@ def handle_start(message):
         bot.send_message(chat_id, "❌ *Unable to fetch batch list. Try again later.*", parse_mode="Markdown")
         return
 
-    # Store user batches and state
     user_batches[chat_id] = {str(b.get("id") or b.get("_id")): b for b in batches}
     user_state[chat_id] = "await_course_id"
 
-    # Build the message to send
     msg_lines = [
         "━━━━━━━━━━━━━━━━━━━━━━━━",
         " *WELCOME TO YOUR COURSE HUB!* ",
@@ -464,58 +465,77 @@ def handle_start(message):
     bot.send_message(chat_id, "\n".join(msg_lines), parse_mode="Markdown")
 
 
-@bot.message_handler(func=lambda m: user_state.get(m.chat.id) == "await_course_id") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-def handle_course_id(message): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    chat_id = message.chat.id #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    batch_id = (message.text or "").strip() #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    if not batch_id: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        bot.reply_to(message, "❌ Please send a valid Batch ID (string).") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        return #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+@bot.message_handler(func=lambda m: user_state.get(m.chat.id) == "await_course_id")
+def handle_course_id(message):
+    chat_id = message.chat.id
+    batch_id = (message.text or "").strip()
+    if not batch_id:
+        bot.reply_to(message, "❌ Please send a valid Batch ID (string).")
+        return
 
-    selected = user_batches.get(chat_id, {}).get(batch_id) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    if not selected: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        bot.reply_to(message, f"❌ Invalid Batch ID: {batch_id}. Make sure it's exact.") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        return #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+    selected = user_batches.get(chat_id, {}).get(batch_id)
+    if not selected:
+        bot.reply_to(message, f"❌ Invalid Batch ID: {batch_id}. Make sure it's exact.")
+        return
 
-    user_selected[chat_id] = selected #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    course_title = selected.get("title") or "Course" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    bot.send_message(chat_id, "⏳ Fetching course data... Please wait.") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+    user_selected[chat_id] = selected
+    course_title = selected.get("title") or "Course"
+    bot.send_message(chat_id, "⏳ Fetching course data... Please wait.")
 
-    ok, txt, summary = build_txt_for_course(batch_id, course_title=course_title) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    if not ok: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        bot.send_message(chat_id, f"❌ Failed to fetch course data for ID: {batch_id}") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        return #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+    ok, txt, summary = build_txt_for_course(batch_id, course_title=course_title)
+    if not ok:
+        bot.send_message(chat_id, f"❌ Failed to fetch course data for ID: {batch_id}")
+        return
 
-    tmp_path = None #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    try: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        safe_title = re.sub(r"[^\w\s-]", "", course_title).strip().replace(" ", "_") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        tmp_file_name = f"𓍯𝙎𝙪𝙟𝙖𝙡⚝{safe_title}.txt" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        tmp_path = os.path.join(tempfile.gettempdir(), tmp_file_name) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        with open(tmp_path, "w", encoding="utf-8") as tf: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            tf.write(txt) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+    tmp_path = None
+    try:
+        # --- Prepare text file ---
+        safe_title = re.sub(r"[^\w\s-]", "", course_title).strip().replace(" ", "_")
+        tmp_file_name = f"𓍯𝙎𝙪𝙟𝙖𝙡⚝{safe_title}.txt"
+        tmp_path = os.path.join(tempfile.gettempdir(), tmp_file_name)
+        with open(tmp_path, "w", encoding="utf-8") as tf:
+            tf.write(txt)
 
-        with open(tmp_path, "rb") as doc: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            bot.send_document(chat_id, doc, caption=f"Course export: {course_title}\n\n{summary.get('summary_text','')}") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+        # --- Send TXT with thumbnail ---
+        with open(tmp_path, "rb") as doc, open(THUMBNAIL_PATH, "rb") as thumb:
+            bot.send_document(
+                chat_id,
+                doc,
+                caption=f"📄 Course export: {course_title}\n\n{summary.get('summary_text','')}",
+                thumb=thumb
+            )
 
-    except Exception as e: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        logging.exception("Error sending document") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        bot.send_message(chat_id, "❌ Error while preparing/sending file.") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    finally: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        try: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            if tmp_path and Path(tmp_path).exists(): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                os.remove(tmp_path) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        except Exception: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            pass #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+        # --- Send batch JPG if available ---
+        batch_image_path = selected.get("image_path")  # Ensure this points to the batch JPG file
+        if batch_image_path and Path(batch_image_path).exists():
+            with open(batch_image_path, "rb") as img:
+                bot.send_document(
+                    chat_id,
+                    img,
+                    caption=f"📸 Batch image: {course_title}"
+                )
 
-    user_state[chat_id] = None #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    user_selected.pop(chat_id, None) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    user_batches.pop(chat_id, None) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+    except Exception as e:
+        logging.exception("Error sending documents")
+        bot.send_message(chat_id, "❌ Error while preparing/sending files.")
+    finally:
+        # --- Clean up temp TXT file ---
+        try:
+            if tmp_path and Path(tmp_path).exists():
+                os.remove(tmp_path)
+        except Exception:
+            pass
+
+    # --- Reset user state ---
+    user_state[chat_id] = None
+    user_selected.pop(chat_id, None)
+    user_batches.pop(chat_id, None)
 
 
-@bot.message_handler(func=lambda m: True) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-def fallback(message): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    chat_id = message.chat.id #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    bot.send_message(chat_id, "Use /start to list batches and export a course. If you're in the flow, follow instructions.") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+@bot.message_handler(func=lambda m: True)
+def fallback(message):
+    chat_id = message.chat.id
+    bot.send_message(chat_id, "Use /start to list batches and export a course. If you're in the flow, follow instructions.")
 
 
 if __name__ == "__main__":
