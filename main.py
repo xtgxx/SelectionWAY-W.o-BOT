@@ -505,16 +505,6 @@ def handle_course_id(message):
                 thumb=thumb
             )
 
-        # --- Send batch JPG if available ---
-        batch_image_path = selected.get("image_path")  # Ensure this points to the batch JPG file
-        if batch_image_path and Path(batch_image_path).exists():
-            with open(batch_image_path, "rb") as img:
-                bot.send_document(
-                    chat_id,
-                    img,
-                    caption=f"📸 Batch image: {course_title}"
-                )
-
     except Exception as e:
         logging.exception("Error sending documents")
         bot.send_message(chat_id, "❌ Error while preparing/sending files.")
