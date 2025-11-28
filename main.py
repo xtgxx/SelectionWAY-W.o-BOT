@@ -501,7 +501,7 @@ def handle_course_id(message):
             bot.send_document(
                 chat_id,
                 doc,
-                caption=f"Course export: {course_title}\n\n{summary.get('summary_text','')}",
+                caption=f"Batch Name : {course_title}\n\n{summary.get('summary_text','')}",
                 thumb=thumb
             )
 
