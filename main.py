@@ -468,6 +468,13 @@ def handle_start(message):
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id) == "await_course_id")
 def handle_course_id(message):
     chat_id = message.chat.id
+
+    text = (message.text or "").strip()
+
+    # ❗ Commands ko Batch ID mat treat karo
+    if text.startswith("/"):
+        return
+
     batch_id = (message.text or "").strip()
     if not batch_id:
         bot.reply_to(message, "❌ Please send a valid Batch ID (string).")
