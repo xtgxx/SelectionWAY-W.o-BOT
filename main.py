@@ -424,7 +424,7 @@ def handle_start(message):
         kb.add(
             telebot.types.InlineKeyboardButton(
                 "💥 Join Our Channel 💥",
-                url="https://t.me/+2q1EoC5BVyM2MjI1"
+                url="https://t.me/+52BF8FBisCFjYTI9"
             )
         )
         bot.send_message(
