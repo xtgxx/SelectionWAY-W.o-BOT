@@ -14,9 +14,11 @@ import telebot
 from flask import Flask
 from telebot import types
 from telebot.apihelper import ApiTelegramException
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+
 
 # ---------------- CONFIG ----------------
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8294450252:AAEBj5jrMNAdwyRyhfF9hGuQBTr9IkExmGk")
 BASE_URL = "https://backend.multistreaming.site/api"
 USER_ID_FOR_ACTIVE = "1448640"
 
@@ -489,12 +491,41 @@ def send_batch_list(chat_id, page=0, message_id=None):
             safe_send(bot.send_message, chat_id, text, parse_mode="Markdown", reply_markup=kb)
 
 
+# ---------------- FORCE SUB CONFIG ----------------
+CHANNEL_ID = -1003489596354   # your private channel id
+INVITE_LINK = "https://t.me/+52BF8FBisCFjYTI9"   # your private invite link
+
+
+
 # ---------------- BOT HANDLERS ----------------
 @bot.message_handler(commands=["start"])
 def handle_start(message):
     chat_id = message.chat.id
     print(f"⚡ /start from chat_id={chat_id}")
     logging.info(f"/start from chat_id={chat_id}")
+
+    # ===== FORCE SUBSCRIPTION CHECK =====
+    try:
+        member = bot.get_chat_member(CHANNEL_ID, chat_id)
+        status = member.status
+    except Exception:
+        status = None
+
+    if status not in ["member", "administrator", "creator"]:
+        join_btn = InlineKeyboardMarkup()
+        join_btn.add(
+            InlineKeyboardButton(
+                "💥 Join Our Channel 💥",
+                url=INVITE_LINK
+            )
+        )
+        bot.send_message(
+            chat_id,
+            "🔴 To use this bot, please join our channel first.\n\nAfter joining, click /start",
+            reply_markup=join_btn
+        )
+        return
+    # ===== END FORCE SUBSCRIPTION =====
 
     ok, batches = get_active_batches()
     if not ok or not batches:
@@ -508,9 +539,23 @@ def handle_start(message):
     send_batch_list(chat_id, page=0)
 
 
+
 @bot.callback_query_handler(func=lambda call: isinstance(call.data, str) and call.data.startswith("page:"))
 def handle_page_callback(call):
     chat_id = call.message.chat.id
+
+    # OPTIONAL: Pagination par bhi force check (recommended)
+    try:
+        member = bot.get_chat_member(CHANNEL_ID, chat_id)
+        if member.status not in ["member", "administrator", "creator"]:
+            join_btn = InlineKeyboardMarkup()
+            join_btn.add(InlineKeyboardButton("💥 Join Our Channel 💥", url=INVITE_LINK))
+            bot.answer_callback_query(call.id, "Please join the channel first!", show_alert=True)
+            bot.send_message(chat_id, "🔴 You must join the channel to continue.", reply_markup=join_btn)
+            return
+    except:
+        return
+
     try:
         page = int(call.data.split(":", 1)[1])
     except Exception:
@@ -549,16 +594,20 @@ def handle_course_id(message):
     tmp_path = None
     try:
         safe_title = re.sub(r"[^\w\s-]", "", course_title).strip().replace(" ", "_")
-        tmp_file_name = f"@SelectionWayExtractorBoT{safe_title}.txt"
+        tmp_file_name = f"𓍯𝙎𝙪𝙟𝙖𝙡⚝{safe_title}.txt"
         tmp_path = os.path.join(tempfile.gettempdir(), tmp_file_name)
         with open(tmp_path, "w", encoding="utf-8") as tf:
             tf.write(txt)
 
-        with open(tmp_path, "rb") as doc:
+
+        THUMBNAIL_PATH = "thumbnail.jpg" 
+
+        with open(tmp_path, "rb") as doc, open(THUMBNAIL_PATH, "rb") as thumb:
             bot.send_document(
                 chat_id,
                 doc,
-                caption=f"@SelectionWayExtractorBoT: {course_title}\n\n{summary.get('summary_text','')}"
+                thumb=thumb,
+                caption=f"Batch Name:- {course_title}\n\n{summary.get('summary_text','')}"
             )
     except Exception:
         logging.exception("Error sending document")
