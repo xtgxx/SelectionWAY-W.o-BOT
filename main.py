@@ -1,448 +1,445 @@
+# main.py
+# Telegram course-export bot (Heroku-ready, polling + Flask)
 
-""" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-courses_bot_full.py #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-- /start shows numbered batches with Batch ID (copyable) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-- choose a number -> bot asks for Course ID (string/hex allowed) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-- send Course ID -> bot fetches /classes?populate=full and active list to get PDF #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-- builds a flat line TXT (one item per line) containing: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    [Subject] <Full Title> : <link> #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-  (class video links and class PDFs both appear as separate lines with same title) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-- appends summary at end of TXT #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-- sends the txt as a document with summary in caption #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-- robust: handles errors, always returns safe values #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-""" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-import os #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+import os
+import tempfile
+import logging
+from pathlib import Path
+import time
+import re
 from threading import Thread
-import tempfile #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-import logging #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-from pathlib import Path #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-import time #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-import json #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-import requests #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-import telebot #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-import re #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-from flask import Flask #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-from telebot.apihelper import ApiTelegramException #𓍯𝙎𝙪𝙟𝙖𝙡⚝
 
-# ---------------- CONFIG ---------------- #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-BOT_TOKEN = "8294450252:AAEBj5jrMNAdwyRyhfF9hGuQBTr9IkExmGk" # <-- REPLACE with your Bot token #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-BASE_URL = "https://backend.multistreaming.site/api" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-USER_ID_FOR_ACTIVE = "1448640" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-BASE_HEADERS = { #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-} #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-# ---------------------------------------- #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+import requests
+import telebot
+from flask import Flask
+from telebot import types
+from telebot.apihelper import ApiTelegramException
 
-if BOT_TOKEN.startswith("PUT_"): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    raise SystemExit("Please set your BOT_TOKEN in the script before running.") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+# ---------------- CONFIG ----------------
+BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+BASE_URL = "https://backend.multistreaming.site/api"
+USER_ID_FOR_ACTIVE = "1448640"
 
-bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+BASE_HEADERS = {
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+}
 
-# Simple in-memory user state #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-user_state = {}      # chat_id -> "await_batch" / "await_course_id" / None #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-user_batches = {}    # chat_id -> list_of_batches (from /courses/active) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-user_selected = {}   # chat_id -> selected batch object #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+if not BOT_TOKEN or BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
+    raise SystemExit("❌ BOT_TOKEN set kar pehle (env ya code me).")
 
-app = Flask("render_web") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-def safe_send(send_func, *args, **kwargs): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    try: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        return send_func(*args, **kwargs) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    except Exception as e: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        print(f"[safe_send error] {e}") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        return None #𓍯𝙎𝙪𝙟𝙖𝙡⚝
+print("🔥 main.py imported, initializing bot & Flask app...")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None)
+app = Flask("render_web")
+
+# In-memory state
+user_state = {}          # chat_id -> "await_course_id" / None
+user_batches = {}        # chat_id -> dict(id -> batch)
+user_batches_list = {}   # chat_id -> list of batches (pagination)
+user_selected = {}       # chat_id -> selected batch
+
+PAGE_SIZE = 10
 
 
-
-@app.route("/") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-def home(): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    return "✅ Bot is running on Render!" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-# Logging #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-
-# ---------------- Helpers ---------------- #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-def safe_json_get(r): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    try: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        return r.json() #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    except Exception as e: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        logging.warning("safe_json_get failed: %s", e) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        return {} #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-
-def get_active_batches(): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    """Return (ok, batches_list). Always safe.""" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    url = f"{BASE_URL}/courses/active?userId={USER_ID_FOR_ACTIVE}" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    try: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        r = requests.get(url, headers=BASE_HEADERS, timeout=15) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        data = safe_json_get(r) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if isinstance(data, dict) and data.get("state") == 200 and isinstance(data.get("data"), list): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            return True, data["data"] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if isinstance(data, dict) and "data" in data and isinstance(data["data"], list): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            return True, data["data"] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        return False, [] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    except Exception as e: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        logging.exception("get_active_batches error") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        return False, [] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-
-def get_course_classes(course_id): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    """Fetch classes for a course_id using classes?populate=full. Returns (ok, classes_list).""" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    url = f"{BASE_URL}/courses/{course_id}/classes?populate=full" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    try: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        r = requests.get(url, headers=BASE_HEADERS, timeout=20) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        data = safe_json_get(r) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if isinstance(data, dict) and data.get("state") == 200 and isinstance(data.get("data"), list): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            return True, data["data"] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            inner = data["data"] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            if "classes" in inner and isinstance(inner["classes"], list): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                return True, inner["classes"] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if isinstance(data, dict) and "data" in data and isinstance(data["data"], list): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            return True, data["data"] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        return False, [] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    except Exception as e: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        logging.exception("get_course_classes error") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        return False, [] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-
-def find_pdf_from_active(course_id, batches=None): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    """Search active batches list for batchInfoPdfUrl. Return list (may be empty).""" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    try: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if batches is None: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            ok, batches = get_active_batches() #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            if not ok: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                return [] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        for b in batches: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            if str(b.get("id")) == str(course_id) or str(b.get("_id")) == str(course_id): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                pdf = b.get("batchInfoPdfUrl") or b.get("batch_info_pdf") or b.get("pdf") or "" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                if not pdf: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                    return [] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                if isinstance(pdf, list): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                    return [p for p in pdf if p] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                if isinstance(pdf, str): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                    parts = re.split(r"[\n,;]+", pdf) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                    return [p.strip() for p in parts if p.strip()] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        return [] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    except Exception: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        return [] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-
-def _extract_subject_from_title(title, fallback=None): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    """Extract a compact subject token for bracket prefix.""" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    try: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if "||" in title: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            parts = [p.strip() for p in title.split("||")] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            if len(parts) > 1: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                second = parts[1] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                if "|" in second: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                    return second.split("|")[0].strip() #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                return second.strip() #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if "|" in title: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            parts = [p.strip() for p in title.split("|")] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            for p in parts: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                if p and not re.search(r"(?i)class[\s-]*\d+", p): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                    return p #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if fallback: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            return fallback #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        return "Course" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    except Exception: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        return fallback or "Course" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-
-def normalize_video_entries(class_item): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    """Extract primary link, mp4s, and PDFs from class_item.""" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    title = ( #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        class_item.get("title") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        or class_item.get("classTitle") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        or class_item.get("name") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        or class_item.get("heading") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        or "Untitled" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    ) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    candidate_links = [] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    direct_keys = [ #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "class_link", "videoLink", "video_link", "video_url", "videoUrl", #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "link", "url", "playbackUrl", "playback_url", "streamUrl", "stream_url" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    ] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    for k in direct_keys: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        v = class_item.get(k) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if isinstance(v, str) and v: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            candidate_links.append(v) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    m3u8_keys = [ #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "masterPlaylist", "master_playlist", #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "hlsLink", "hls_link", #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "secureLink", "secure_link", #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "m3u8", "m3u8Url", "m3u8_url", #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "playlist", "playlistUrl" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    ] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    for k in m3u8_keys: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        v = class_item.get(k) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if isinstance(v, str) and v: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            candidate_links.append(v) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    array_keys = ["rawSources", "sources", "recordings", "files", "videoFiles", "videos", "assets"] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    for k in array_keys: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        arr = class_item.get(k) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if isinstance(arr, list): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            for it in arr: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                if isinstance(it, str) and it: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                    candidate_links.append(it) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                elif isinstance(it, dict): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                    for subk in ("url", "file", "src", "mp4", "m3u8"): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                        vv = it.get(subk) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                        if isinstance(vv, str) and vv: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                            candidate_links.append(vv) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    nested_keys = ["playback", "video", "stream", "media"] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    for nk in nested_keys: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        obj = class_item.get(nk) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if isinstance(obj, dict): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            for subk in ("url", "file", "m3u8", "mp4", "hls", "src"): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                vv = obj.get(subk) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                if isinstance(vv, str) and vv: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                    candidate_links.append(vv) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        elif isinstance(obj, list): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            for it in obj: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                if isinstance(it, str): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                    candidate_links.append(it) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                elif isinstance(it, dict): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                    for subk in ("url", "file", "src", "mp4", "m3u8"): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                        vv = it.get(subk) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                        if isinstance(vv, str): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                            candidate_links.append(vv) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    for k in ("embed", "iframe", "embedHtml"): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        v = class_item.get(k) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if isinstance(v, str) and "http" in v: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            m = re.search(r"https?://[^\s'\"<>]+", v) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            if m: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                candidate_links.append(m.group(0)) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    seen = set() #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    clean_candidates = [] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    for u in candidate_links: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if not isinstance(u, str) or not u.strip(): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            continue #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        u = u.strip() #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if u not in seen: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            seen.add(u) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            clean_candidates.append(u) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    hls_links = [u for u in clean_candidates if "m3u8" in u or "playlist-mpl" in u or "hls" in u.lower()] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    other_links = [u for u in clean_candidates if u not in hls_links] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    mp4_list = [] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    for u in clean_candidates: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if u.lower().endswith(".mp4") or ".mp4?" in u.lower(): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            mp4_list.append(u) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    explicit_mp4 = class_item.get("mp4Recordings") or class_item.get("mp4_recordings") or class_item.get("mp4records") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    if isinstance(explicit_mp4, list): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        for it in explicit_mp4: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            if isinstance(it, str) and it.strip(): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                if it not in mp4_list: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                    mp4_list.append(it.strip()) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            elif isinstance(it, dict): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                for subk in ("url", "file", "mp4"): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                    vv = it.get(subk) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                    if isinstance(vv, str) and vv.strip() and vv not in mp4_list: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                        mp4_list.append(vv.strip()) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    mp4_seen = set() #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    mp4_clean = [] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    for m in mp4_list: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if m not in mp4_seen: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            mp4_seen.add(m) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            mp4_clean.append(m) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    class_pdfs = [] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    pdf_keys = ["classPdf", "class_pdf", "pdfs", "materials", "resources", "files"] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    for key in pdf_keys: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        arr = class_item.get(key) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if isinstance(arr, list): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            for it in arr: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                if isinstance(it, str) and ".pdf" in it.lower(): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                    class_pdfs.append(it.strip()) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                elif isinstance(it, dict): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                    for subk in ("url", "file", "pdf"): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                        vv = it.get(subk) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                        if isinstance(vv, str) and ".pdf" in vv.lower(): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                            class_pdfs.append(vv.strip()) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    for k in ("pdf", "pdfUrl", "pdf_url", "file"): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        v = class_item.get(k) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if isinstance(v, str) and ".pdf" in v.lower(): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            class_pdfs.append(v.strip()) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    pdf_seen = set() #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    pdf_clean = [] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    for p in class_pdfs: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if p not in pdf_seen: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            pdf_seen.add(p) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            pdf_clean.append(p) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    primary_link = "" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    if hls_links: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        primary_link = hls_links[0] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    elif other_links: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        primary_link = other_links[0] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    else: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        primary_link = "" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    include_mp4s = False if primary_link and ("m3u8" in primary_link or "hls" in primary_link.lower() or "playlist-mpl" in primary_link) else True #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    return { #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "title": title, #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "class_link": primary_link, #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "mp4Recordings": mp4_clean if include_mp4s else [], #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "classPdf": pdf_clean #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    } #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-
-def build_txt_for_course(course_id, course_title=None): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    """Build TXT content and summary for a course.""" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    ok, classes = get_course_classes(course_id) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    batches_ok, batches = get_active_batches() #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    if not ok: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        return False, "ERROR: Failed to fetch classes for this course.", {} #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    items_to_process = [] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    try: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if isinstance(classes, list) and classes and isinstance(classes[0], dict) and classes[0].get("topicName") and classes[0].get("classes"): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            for topic_block in classes: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                for cls in topic_block.get("classes", []): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                    items_to_process.append(cls) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        else: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            items_to_process = classes if isinstance(classes, list) else [] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    except Exception: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        items_to_process = classes if isinstance(classes, list) else [] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    lines = [] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    total_videos = 0 #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    total_mp4 = 0 #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    total_m3u8 = 0 #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    total_youtube = 0 #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    total_pdfs = 0 #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    for cls in items_to_process: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        normalized = normalize_video_entries(cls) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        title = normalized.get("title", "Untitled") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        subject = _extract_subject_from_title(title, fallback=(course_title or "Course")) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-        primary = normalized.get("class_link") or "" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if primary: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            lines.append(f"[{subject}] {title} : {primary}") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            total_videos += 1 #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            u = primary.lower() #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            if "m3u8" in u or "playlist" in u or "hls" in u: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                total_m3u8 += 1 #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            elif "youtube" in u: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                total_youtube += 1 #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            else: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                total_mp4 += 1 #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        elif normalized.get("mp4Recordings"): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            for m in normalized.get("mp4Recordings"): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                lines.append(f"[{subject}] {title} : {m}") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                total_videos += 1 #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-                total_mp4 += 1 #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-        for p in normalized.get("classPdf", []): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            lines.append(f"[{subject}] {title} : {p}") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            total_pdfs += 1 #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    course_level_pdfs = find_pdf_from_active(course_id, batches if batches_ok else None) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    if isinstance(course_level_pdfs, str): #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        if course_level_pdfs and course_level_pdfs.lower() != "no pdf": #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            course_level_pdfs = [u.strip() for u in re.split(r"[\n,;]+", course_level_pdfs) if u.strip()] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        else: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            course_level_pdfs = [] #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    if isinstance(course_level_pdfs, list) and course_level_pdfs: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        subj = course_title or "Course" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        for p in course_level_pdfs: #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            lines.append(f"[{subj}] {subj} : {p}") #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-            total_pdfs += 1 #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    txt_content = "\n".join(lines) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    summary_text = ( #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        f"📊 Export Summary:\n" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        f"🔗 Total Links: {len(lines)}\n" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        f"🎬 Videos: {total_videos}\n" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        f"📄 PDFs: {total_pdfs}" #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    ) #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    txt_content += "\n\n" + summary_text #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    summary_dict = { #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "total_links": len(lines), #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "total_videos": total_videos, #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "total_mp4": total_mp4, #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "total_m3u8": total_m3u8, #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "total_youtube": total_youtube, #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "total_pdfs": total_pdfs, #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-        "summary_text": summary_text #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-    } #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-    return True, txt_content, summary_dict #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-
-
-# ---------------- BOT HANDLERS ---------------- #𓍯𝙎𝙪𝙟𝙖𝙡⚝
-# ---------------- FORCE SUBSCRIBE FUNCTION ----------------
-def is_subscribed(user_id):
-    """
-    Checks if the user has joined the private channel.
-    Returns True if subscribed, False otherwise.
-    """
-    channel_id = -1003489596354  # Your private channel ID
+# ---------------- GENERIC HELPERS ----------------
+def safe_send(send_func, *args, **kwargs):
     try:
-        member = bot.get_chat_member(chat_id=channel_id, user_id=user_id)
-        if member.status in ['creator', 'administrator', 'member']:
-            return True
-        else:
-            return False
-    except telebot.apihelper.ApiTelegramException:
-        # User is not a member of the channel
-        return False
+        return send_func(*args, **kwargs)
+    except Exception:
+        logging.exception("safe_send error")
+        return None
 
 
-# ---------------- BOT START HANDLER ----------------
-# ---------------- BOT START HANDLER ----------------
-THUMBNAIL_PATH = "images.jpg"  # <-- yahan apna thumbnail image file rakho (same folder me)
+def safe_json_get(r: requests.Response):
+    try:
+        return r.json()
+    except Exception as e:
+        logging.warning("safe_json_get failed: %s", e)
+        return {}
 
-@bot.message_handler(commands=["start"])
-def handle_start(message):
-    chat_id = message.chat.id
-    user_id = message.from_user.id  # Telegram user ID
 
-    # -------- FORCE SUBSCRIBE CHECK --------
-    if not is_subscribed(user_id):
-        kb = telebot.types.InlineKeyboardMarkup()
-        kb.add(
-            telebot.types.InlineKeyboardButton(
-                "💥 Join Our Channel 💥",
-                url="https://t.me/+52BF8FBisCFjYTI9"
-            )
-        )
-        bot.send_message(
-            chat_id,
-            "🔴 **To use this bot, please join our channel first.**\n\nAfter joining, click /start",
-            reply_markup=kb,
-            parse_mode="Markdown"
-        )
-        return
+@app.route("/")
+def home():
+    return "✅ Bot is running (Flask alive)."
 
-    # -------- FETCH ACTIVE BATCHES --------
-    ok, batches = get_active_batches()
+
+# ---------------- BATCH FETCHING (ALL COURSES) ----------------
+def get_active_batches():
+    """
+    Backend ke /courses?userId=... se saare courses (active + inactive) aajayenge.
+    Return (ok, batches_list)
+    """
+    url = f"{BASE_URL}/courses?userId={USER_ID_FOR_ACTIVE}"
+    print(f"🌐 Fetching batches from: {url}")
+    logging.info(f"Fetching batches from: {url}")
+    try:
+        r = requests.get(url, headers=BASE_HEADERS, timeout=15)
+        data = safe_json_get(r)
+
+        # direct state check
+        if isinstance(data, dict) and data.get("state") == 200 and isinstance(data.get("data"), list):
+            print(f"📦 Received {len(data['data'])} items (state=200).")
+            return True, data["data"]
+
+        # fallback data list
+        if isinstance(data, dict) and "data" in data and isinstance(data["data"], list):
+            print(f"📦 Received {len(data['data'])} items (data list).")
+            return True, data["data"]
+
+        print("⚠️ Unexpected batch response format.")
+        return False, []
+    except Exception:
+        logging.exception("get_active_batches error")
+        return False, []
+
+
+# ---------------- COURSE / CLASS HELPERS ----------------
+def get_course_classes(course_id):
+    """Fetch classes for a course_id using classes?populate=full. Returns (ok, classes_list)."""
+    url = f"{BASE_URL}/courses/{course_id}/classes?populate=full"
+    print(f"🌐 Fetching classes for course_id={course_id}")
+    logging.info(f"get_course_classes: {url}")
+    try:
+        r = requests.get(url, headers=BASE_HEADERS, timeout=20)
+        data = safe_json_get(r)
+        if isinstance(data, dict) and data.get("state") == 200 and isinstance(data.get("data"), list):
+            return True, data["data"]
+        if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
+            inner = data["data"]
+            if "classes" in inner and isinstance(inner["classes"], list):
+                return True, inner["classes"]
+        if isinstance(data, dict) and "data" in data and isinstance(data["data"], list):
+            return True, data["data"]
+        return False, []
+    except Exception:
+        logging.exception("get_course_classes error")
+        return False, []
+
+
+def find_pdf_from_active(course_id, batches=None):
+    """Search batches list for batchInfoPdfUrl. Return list (may be empty)."""
+    try:
+        if batches is None:
+            ok, batches = get_active_batches()
+            if not ok:
+                return []
+        for b in batches:
+            if str(b.get("id")) == str(course_id) or str(b.get("_id")) == str(course_id):
+                pdf = b.get("batchInfoPdfUrl") or b.get("batch_info_pdf") or b.get("pdf") or ""
+                if not pdf:
+                    return []
+                if isinstance(pdf, list):
+                    return [p for p in pdf if p]
+                if isinstance(pdf, str):
+                    parts = re.split(r"[\n,;]+", pdf)
+                    return [p.strip() for p in parts if p.strip()]
+        return []
+    except Exception:
+        logging.exception("find_pdf_from_active error")
+        return []
+
+
+def _extract_subject_from_title(title, fallback=None):
+    """Extract a compact subject token for bracket prefix."""
+    try:
+        if "||" in title:
+            parts = [p.strip() for p in title.split("||")]
+            if len(parts) > 1:
+                second = parts[1]
+                if "|" in second:
+                    return second.split("|")[0].strip()
+                return second.strip()
+        if "|" in title:
+            parts = [p.strip() for p in title.split("|")]
+            for p in parts:
+                if p and not re.search(r"(?i)class[\s-]*\d+", p):
+                    return p
+        if fallback:
+            return fallback
+        return "Course"
+    except Exception:
+        return fallback or "Course"
+
+
+def normalize_video_entries(class_item):
+    """Extract primary link, mp4s, and PDFs from class_item."""
+    title = (
+        class_item.get("title")
+        or class_item.get("classTitle")
+        or class_item.get("name")
+        or class_item.get("heading")
+        or "Untitled"
+    )
+
+    candidate_links = []
+
+    # direct keys
+    direct_keys = [
+        "class_link", "videoLink", "video_link", "video_url", "videoUrl",
+        "link", "url", "playbackUrl", "playback_url", "streamUrl", "stream_url"
+    ]
+    for k in direct_keys:
+        v = class_item.get(k)
+        if isinstance(v, str) and v:
+            candidate_links.append(v)
+
+    # m3u8 related
+    m3u8_keys = [
+        "masterPlaylist", "master_playlist",
+        "hlsLink", "hls_link",
+        "secureLink", "secure_link",
+        "m3u8", "m3u8Url", "m3u8_url",
+        "playlist", "playlistUrl"
+    ]
+    for k in m3u8_keys:
+        v = class_item.get(k)
+        if isinstance(v, str) and v:
+            candidate_links.append(v)
+
+    # arrays
+    array_keys = ["rawSources", "sources", "recordings", "files", "videoFiles", "videos", "assets"]
+    for k in array_keys:
+        arr = class_item.get(k)
+        if isinstance(arr, list):
+            for it in arr:
+                if isinstance(it, str) and it:
+                    candidate_links.append(it)
+                elif isinstance(it, dict):
+                    for subk in ("url", "file", "src", "mp4", "m3u8"):
+                        vv = it.get(subk)
+                        if isinstance(vv, str) and vv:
+                            candidate_links.append(vv)
+
+    # nested objects
+    nested_keys = ["playback", "video", "stream", "media"]
+    for nk in nested_keys:
+        obj = class_item.get(nk)
+        if isinstance(obj, dict):
+            for subk in ("url", "file", "m3u8", "mp4", "hls", "src"):
+                vv = obj.get(subk)
+                if isinstance(vv, str) and vv:
+                    candidate_links.append(vv)
+        elif isinstance(obj, list):
+            for it in obj:
+                if isinstance(it, str):
+                    candidate_links.append(it)
+                elif isinstance(it, dict):
+                    for subk in ("url", "file", "src", "mp4", "m3u8"):
+                        vv = it.get(subk)
+                        if isinstance(vv, str):
+                            candidate_links.append(vv)
+
+    # embed / iframe
+    for k in ("embed", "iframe", "embedHtml"):
+        v = class_item.get(k)
+        if isinstance(v, str) and "http" in v:
+            m = re.search(r"https?://[^\s'\"<>]+", v)
+            if m:
+                candidate_links.append(m.group(0))
+
+    # dedupe links
+    seen = set()
+    clean_candidates = []
+    for u in candidate_links:
+        if not isinstance(u, str) or not u.strip():
+            continue
+        u = u.strip()
+        if u not in seen:
+            seen.add(u)
+            clean_candidates.append(u)
+
+    hls_links = [u for u in clean_candidates if "m3u8" in u or "playlist-mpl" in u or "hls" in u.lower()]
+    other_links = [u for u in clean_candidates if u not in hls_links]
+
+    # mp4 list
+    mp4_list = []
+    for u in clean_candidates:
+        low = u.lower()
+        if low.endswith(".mp4") or ".mp4?" in low:
+            mp4_list.append(u)
+
+    explicit_mp4 = class_item.get("mp4Recordings") or class_item.get("mp4_recordings") or class_item.get("mp4records")
+    if isinstance(explicit_mp4, list):
+        for it in explicit_mp4:
+            if isinstance(it, str) and it.strip():
+                if it not in mp4_list:
+                    mp4_list.append(it.strip())
+            elif isinstance(it, dict):
+                for subk in ("url", "file", "mp4"):
+                    vv = it.get(subk)
+                    if isinstance(vv, str) and vv.strip() and vv not in mp4_list:
+                        mp4_list.append(vv.strip())
+
+    mp4_seen = set()
+    mp4_clean = []
+    for m in mp4_list:
+        if m not in mp4_seen:
+            mp4_seen.add(m)
+            mp4_clean.append(m)
+
+    # PDFs
+    class_pdfs = []
+    pdf_keys = ["classPdf", "class_pdf", "pdfs", "materials", "resources", "files"]
+    for key in pdf_keys:
+        arr = class_item.get(key)
+        if isinstance(arr, list):
+            for it in arr:
+                if isinstance(it, str) and ".pdf" in it.lower():
+                    class_pdfs.append(it.strip())
+                elif isinstance(it, dict):
+                    for subk in ("url", "file", "pdf"):
+                        vv = it.get(subk)
+                        if isinstance(vv, str) and ".pdf" in vv.lower():
+                            class_pdfs.append(vv.strip())
+
+    for k in ("pdf", "pdfUrl", "pdf_url", "file"):
+        v = class_item.get(k)
+        if isinstance(v, str) and ".pdf" in v.lower():
+            class_pdfs.append(v.strip())
+
+    pdf_seen = set()
+    pdf_clean = []
+    for p in class_pdfs:
+        if p not in pdf_seen:
+            pdf_seen.add(p)
+            pdf_clean.append(p)
+
+    # primary link
+    primary_link = ""
+    if hls_links:
+        primary_link = hls_links[0]
+    elif other_links:
+        primary_link = other_links[0]
+    else:
+        primary_link = ""
+
+    # decide if we include mp4s separately
+    include_mp4s = False if primary_link and (
+        "m3u8" in primary_link or "hls" in primary_link.lower() or "playlist-mpl" in primary_link
+    ) else True
+
+    return {
+        "title": title,
+        "class_link": primary_link,
+        "mp4Recordings": mp4_clean if include_mp4s else [],
+        "classPdf": pdf_clean
+    }
+
+
+def build_txt_for_course(course_id, course_title=None):
+    """Build TXT content and summary for a course."""
+    ok, classes = get_course_classes(course_id)
+    batches_ok, batches = get_active_batches()
+
     if not ok:
-        bot.send_message(chat_id, "❌ *Unable to fetch batch list. Try again later.*", parse_mode="Markdown")
+        return False, "ERROR: Failed to fetch classes for this course.", {}
+
+    items_to_process = []
+    try:
+        if (
+            isinstance(classes, list)
+            and classes
+            and isinstance(classes[0], dict)
+            and classes[0].get("topicName")
+            and classes[0].get("classes")
+        ):
+            for topic_block in classes:
+                for cls in topic_block.get("classes", []):
+                    items_to_process.append(cls)
+        else:
+            items_to_process = classes if isinstance(classes, list) else []
+    except Exception:
+        items_to_process = classes if isinstance(classes, list) else []
+
+    lines = []
+    total_videos = 0
+    total_mp4 = 0
+    total_m3u8 = 0
+    total_youtube = 0
+    total_pdfs = 0
+
+    for cls in items_to_process:
+        normalized = normalize_video_entries(cls)
+        title = normalized.get("title", "Untitled")
+        subject = _extract_subject_from_title(title, fallback=(course_title or "Course"))
+
+        primary = normalized.get("class_link") or ""
+        if primary:
+            lines.append(f"[{subject}] {title} : {primary}")
+            total_videos += 1
+            u = primary.lower()
+            if "m3u8" in u or "playlist" in u or "hls" in u:
+                total_m3u8 += 1
+            elif "youtube" in u:
+                total_youtube += 1
+            else:
+                total_mp4 += 1
+        elif normalized.get("mp4Recordings"):
+            for m in normalized.get("mp4Recordings"):
+                lines.append(f"[{subject}] {title} : {m}")
+                total_videos += 1
+                total_mp4 += 1
+
+        for p in normalized.get("classPdf", []):
+            lines.append(f"[{subject}] {title} : {p}")
+            total_pdfs += 1
+
+    # course level pdfs
+    course_level_pdfs = find_pdf_from_active(course_id, batches if batches_ok else None)
+    if isinstance(course_level_pdfs, str):
+        if course_level_pdfs and course_level_pdfs.lower() != "no pdf":
+            course_level_pdfs = [u.strip() for u in re.split(r"[\n,;]+", course_level_pdfs) if u.strip()]
+        else:
+            course_level_pdfs = []
+
+    if isinstance(course_level_pdfs, list) and course_level_pdfs:
+        subj = course_title or "Course"
+        for p in course_level_pdfs:
+            lines.append(f"[{subj}] {subj} : {p}")
+            total_pdfs += 1
+
+    txt_content = "\n".join(lines)
+    summary_text = (
+        f"📊 Export Summary:\n"
+        f"🔗 Total Links: {len(lines)}\n"
+        f"🎬 Videos: {total_videos}\n"
+        f"📄 PDFs: {total_pdfs}"
+    )
+    txt_content += "\n\n" + summary_text
+
+    summary_dict = {
+        "total_links": len(lines),
+        "total_videos": total_videos,
+        "total_mp4": total_mp4,
+        "total_m3u8": total_m3u8,
+        "total_youtube": total_youtube,
+        "total_pdfs": total_pdfs,
+        "summary_text": summary_text
+    }
+
+    return True, txt_content, summary_dict
+
+
+# ---------------- PAGINATION UI ----------------
+def send_batch_list(chat_id, page=0, message_id=None):
+    """Send paginated batch list (10 per page) with Next/Previous buttons."""
+    batches = user_batches_list.get(chat_id, [])
+    if not batches:
+        safe_send(bot.send_message, chat_id, "❌ No batches found. Try again later.")
         return
 
-    user_batches[chat_id] = {str(b.get("id") or b.get("_id")): b for b in batches}
-    user_state[chat_id] = "await_course_id"
+    total = len(batches)
+    total_pages = (total - 1) // PAGE_SIZE + 1
+
+    if page < 0:
+        page = 0
+    if page > total_pages - 1:
+        page = total_pages - 1
+
+    start_idx = page * PAGE_SIZE
+    end_idx = start_idx + PAGE_SIZE
+    page_batches = batches[start_idx:end_idx]
 
     msg_lines = [
         "━━━━━━━━━━━━━━━━━━━━━━━━",
@@ -451,31 +448,86 @@ def handle_start(message):
         "━━━━━━━━━━━━━━━━━━━━━━\n"
     ]
 
-    for i, b in enumerate(batches, start=1):
+    for i, b in enumerate(page_batches, start=start_idx + 1):
         title = b.get("title") or b.get("name") or "Untitled"
         bid = b.get("id") or b.get("_id") or ""
         msg_lines.append(f"📌 *{i}. {title}*")
         msg_lines.append(f"   🆔 Batch ID: `{bid}`")
         msg_lines.append("────────────────────────")
 
-    msg_lines.append("\n✨ Send the *Batch ID* to continue.")
+    msg_lines.append(f"\n📄 Page {page + 1} of {total_pages}")
+    msg_lines.append("✨ Send the *Batch ID* to continue.")
     msg_lines.append("💡 Tip: Copy the Batch ID above to avoid mistakes!")
     msg_lines.append("━━━━━━━━━━━━━━━━━━━")
 
-    bot.send_message(chat_id, "\n".join(msg_lines), parse_mode="Markdown")
+    text = "\n".join(msg_lines)
+
+    kb = types.InlineKeyboardMarkup()
+    buttons = []
+    if page > 0:
+        buttons.append(types.InlineKeyboardButton("⬅️ Previous", callback_data=f"page:{page - 1}"))
+    if page < total_pages - 1:
+        buttons.append(types.InlineKeyboardButton("Next ➡️", callback_data=f"page:{page + 1}"))
+    if buttons:
+        kb.row(*buttons)  # left-right layout
+
+    if message_id is None:
+        print(f"📤 Sending batch list page {page+1} to chat_id={chat_id}")
+        safe_send(bot.send_message, chat_id, text, parse_mode="Markdown", reply_markup=kb)
+    else:
+        print(f"✏️ Editing batch list message to page {page+1} (chat_id={chat_id})")
+        try:
+            bot.edit_message_text(
+                text,
+                chat_id=chat_id,
+                message_id=message_id,
+                parse_mode="Markdown",
+                reply_markup=kb
+            )
+        except ApiTelegramException:
+            logging.exception("edit_message_text failed, sending new message")
+            safe_send(bot.send_message, chat_id, text, parse_mode="Markdown", reply_markup=kb)
+
+
+# ---------------- BOT HANDLERS ----------------
+@bot.message_handler(commands=["start"])
+def handle_start(message):
+    chat_id = message.chat.id
+    print(f"⚡ /start from chat_id={chat_id}")
+    logging.info(f"/start from chat_id={chat_id}")
+
+    ok, batches = get_active_batches()
+    if not ok or not batches:
+        bot.send_message(chat_id, "❌ *Unable to fetch batch list. Try again later.*", parse_mode="Markdown")
+        return
+
+    user_batches[chat_id] = {str(b.get("id") or b.get("_id")): b for b in batches}
+    user_batches_list[chat_id] = batches
+    user_state[chat_id] = "await_course_id"
+
+    send_batch_list(chat_id, page=0)
+
+
+@bot.callback_query_handler(func=lambda call: isinstance(call.data, str) and call.data.startswith("page:"))
+def handle_page_callback(call):
+    chat_id = call.message.chat.id
+    try:
+        page = int(call.data.split(":", 1)[1])
+    except Exception:
+        return
+
+    print(f"📲 Pagination callback chat_id={chat_id}, page={page}")
+    logging.info(f"Pagination callback chat_id={chat_id}, page={page}")
+    send_batch_list(chat_id, page=page, message_id=call.message.message_id)
 
 
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id) == "await_course_id")
 def handle_course_id(message):
     chat_id = message.chat.id
-
-    text = (message.text or "").strip()
-
-    # ❗ Commands ko Batch ID mat treat karo
-    if text.startswith("/"):
-        return
-
     batch_id = (message.text or "").strip()
+    print(f"📥 Batch ID from chat_id={chat_id}: {batch_id}")
+    logging.info(f"Batch ID from chat_id={chat_id}: {batch_id}")
+
     if not batch_id:
         bot.reply_to(message, "❌ Please send a valid Batch ID (string).")
         return
@@ -487,7 +539,7 @@ def handle_course_id(message):
 
     user_selected[chat_id] = selected
     course_title = selected.get("title") or "Course"
-    bot.send_message(chat_id, "⏳ Fetching course data... Please wait.")
+    bot.send_message(chat_id, "⏳ Fetching course data...")
 
     ok, txt, summary = build_txt_for_course(batch_id, course_title=course_title)
     if not ok:
@@ -496,60 +548,83 @@ def handle_course_id(message):
 
     tmp_path = None
     try:
-        # --- Prepare text file ---
         safe_title = re.sub(r"[^\w\s-]", "", course_title).strip().replace(" ", "_")
-        tmp_file_name = f"𓍯𝙎𝙪𝙟𝙖𝙡⚝{safe_title}.txt"
+        tmp_file_name = f"@SelectionWayExtractorBoT{safe_title}.txt"
         tmp_path = os.path.join(tempfile.gettempdir(), tmp_file_name)
         with open(tmp_path, "w", encoding="utf-8") as tf:
             tf.write(txt)
 
-        # --- Send TXT with thumbnail ---
-        with open(tmp_path, "rb") as doc, open(THUMBNAIL_PATH, "rb") as thumb:
+        with open(tmp_path, "rb") as doc:
             bot.send_document(
                 chat_id,
                 doc,
-                caption=f"Batch Name : {course_title}\n\n{summary.get('summary_text','')}",
-                thumb=thumb
+                caption=f"@SelectionWayExtractorBoT: {course_title}\n\n{summary.get('summary_text','')}"
             )
-
-    except Exception as e:
-        logging.exception("Error sending documents")
-        bot.send_message(chat_id, "❌ Error while preparing/sending files.")
+    except Exception:
+        logging.exception("Error sending document")
+        bot.send_message(chat_id, "❌ Error while preparing/sending file.")
     finally:
-        # --- Clean up temp TXT file ---
         try:
             if tmp_path and Path(tmp_path).exists():
                 os.remove(tmp_path)
         except Exception:
             pass
 
-    # --- Reset user state ---
     user_state[chat_id] = None
     user_selected.pop(chat_id, None)
     user_batches.pop(chat_id, None)
+    user_batches_list.pop(chat_id, None)
 
 
 @bot.message_handler(func=lambda m: True)
 def fallback(message):
     chat_id = message.chat.id
-    bot.send_message(chat_id, "Use /start to list batches and export a course. If you're in the flow, follow instructions.")
+    print(f"💬 Fallback msg from {chat_id}: {message.text!r}")
+    logging.info(f"Fallback msg from {chat_id}: {message.text!r}")
+    bot.send_message(
+        chat_id,
+        "Use /start to list batches and export a course. If you're in the flow, follow instructions."
+    )
 
 
+# ---------------- BOT START HELPERS (for wsgi.py) ----------------
+def remove_webhook_at_start():
+    try:
+        bot.remove_webhook()
+        print("🧹 Webhook removed (switching to polling).")
+        logging.info("Webhook removed (polling mode).")
+    except Exception:
+        logging.exception("Failed to remove webhook")
+
+
+def start_bot():
+    """Blocking polling loop (used by background thread)."""
+    remove_webhook_at_start()
+    print("▶ Starting bot.infinity_polling()...")
+    logging.info("Starting bot.infinity_polling()")
+    try:
+        bot.infinity_polling(timeout=60, long_polling_timeout=60)
+    except Exception:
+        logging.exception("bot.infinity_polling crashed")
+
+
+def start_background_bot():
+    """
+    Public function for wsgi.py:
+        from main import app, start_background_bot
+        start_background_bot()
+    """
+    print("🚀 start_background_bot() called - launching polling thread...")
+    logging.info("start_background_bot() called")
+    t = Thread(target=start_bot, daemon=True)
+    t.start()
+    return t
+
+
+# ---------------- LOCAL RUN ----------------
 if __name__ == "__main__":
-    logging.info("Bot starting...")
-
-    def run_flask():
-        port = int(os.environ.get("PORT", 10000))
-        app.run(host="0.0.0.0", port=port)
-
-    # Start Flask in a separate thread
-    Thread(target=run_flask, daemon=True).start()
-
-    # Start polling in retry loop
-    import time
-    while True:
-        try:
-            bot.infinity_polling(timeout=60, long_polling_timeout=60)
-        except Exception as e:
-            print("Polling error:", e)
-            time.sleep(5)
+    # Local run: start bot thread + Flask
+    start_background_bot()
+    port = int(os.environ.get("PORT", 10000))
+    print(f"🌍 Running Flask on 0.0.0.0:{port}")
+    app.run(host="0.0.0.0", port=port)
