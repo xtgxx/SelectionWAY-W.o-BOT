@@ -18,7 +18,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
 # ---------------- CONFIG ----------------
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8294450252:AAEBj5jrMNAdwyRyhfF9hGuQBTr9IkExmGk")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "7968485354:AAGJs62tisCtDI5k8jraWVa5hJ0ClpDthvk")
 BASE_URL = "https://backend.multistreaming.site/api"
 USER_ID_FOR_ACTIVE = "1448640"
 
@@ -492,8 +492,8 @@ def send_batch_list(chat_id, page=0, message_id=None):
 
 
 # ---------------- FORCE SUB CONFIG ----------------
-CHANNEL_ID = -1003489596354   # your private channel id
-INVITE_LINK = "https://t.me/+52BF8FBisCFjYTI9"   # your private invite link
+CHANNEL_ID = -1003238402408   # your private channel id
+INVITE_LINK = "https://t.me/+9XlLSKDcFzs0NjNl"   # your private invite link
 
 
 
